@@ -65,7 +65,7 @@ function MapboxTransitMap() {
         </div>
         <div className="flex items-center gap-2 bg-white/95 px-3 py-2 rounded-xl shadow-lg text-xs font-semibold text-zinc-700">
           <MapPin size={14} className="text-[#6D1A36]" />
-          TransitBuddy
+          JagaJaga
         </div>
       </div>
       <button

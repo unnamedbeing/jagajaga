@@ -17,7 +17,7 @@ function App() {
         <div className="flex items-center justify-between max-w-lg mx-auto w-full pointer-events-auto">
             <div className="flex items-center gap-2 bg-white/90 backdrop-blur-md p-2 px-3 rounded-2xl shadow-lg border border-white/20">
                 <div className="w-8 h-8 bg-[#6D1A36] rounded-xl flex items-center justify-center text-[#FCD0A1] font-bold text-lg shadow-[#FCD0A1]/50 shadow-md">T</div>
-                <span className="font-extrabold text-zinc-900 tracking-tight">TransitBuddy</span>
+                <span className="font-extrabold text-zinc-900 tracking-tight">JagaJaga</span>
             </div>
             <div className="flex gap-2">
                 <Show when="signed-out">

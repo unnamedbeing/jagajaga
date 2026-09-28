@@ -8,7 +8,7 @@ const Navbar = () => {
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xl tracking-tighter shadow-lg shadow-blue-200">
                 T
             </div>
-            <h1 className="text-xl font-extrabold tracking-tight">TransitBuddy</h1>
+            <h1 className="text-xl font-extrabold tracking-tight">JagaJaga</h1>
         </div>
         <div className="hidden lg:flex items-center gap-6 font-semibold text-sm text-zinc-500">
           <a href="#" className="hover:text-blue-600 transition-colors">Routes</a>

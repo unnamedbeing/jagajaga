@@ -8,7 +8,7 @@ const Footer = () => {
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xl tracking-tighter shadow-lg shadow-blue-200">
                 T
             </div>
-            <h1 className="text-xl font-extrabold tracking-tight">TransitBuddy</h1>
+            <h1 className="text-xl font-extrabold tracking-tight">JagaJaga</h1>
         </div>
         <p className="mb-10 hover:text-blue-600 transition-colors cursor-pointer font-medium">Visit Community Help Center</p>
         
@@ -75,7 +75,7 @@ const Footer = () => {
         </div>
         
         <div className="mt-20 flex flex-col md:flex-row justify-between text-[11px] text-zinc-400 gap-4">
-          <p>© 2026 TransitBuddy Inc. Built for humans, by humans.</p>
+          <p>© 2026 JagaJaga Inc. Built for humans, by humans.</p>
           <div className="flex gap-4">
             <span className="hover:text-blue-600 cursor-pointer transition-colors">Privacy</span>
             <span className="hover:text-blue-600 cursor-pointer transition-colors">Legal</span>
