@@ -1,6 +1,16 @@
 import { MapPin, Navigation } from 'lucide-react';
 
-const MockTransitMap = () => {
+const MockTransitMap = ({ routePath = [] }) => {
+  const routeSvgPath = routePath.length >= 2
+    ? routePath
+        .map(([lng, lat], index) => {
+          const x = ((lng - 7.05) / 0.55) * 1000;
+          const y = ((9.35 - lat) / 0.45) * 1000;
+          return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
+        })
+        .join(' ')
+    : '';
+
   return (
     <div className="relative w-full h-full bg-[#f8fafc] overflow-hidden rounded-lg min-h-[400px]">
       <svg className="absolute inset-0 w-full h-full" viewBox="0 0 1000 1000">
@@ -39,6 +49,13 @@ const MockTransitMap = () => {
           fill="none" 
           strokeDasharray="12 8" 
         />
+
+        {routeSvgPath && (
+          <>
+            <path d={routeSvgPath} stroke="#6D1A36" strokeWidth="12" strokeLinecap="round" fill="none" opacity="0.18" />
+            <path d={routeSvgPath} stroke="#6D1A36" strokeWidth="6" strokeLinecap="round" fill="none" />
+          </>
+        )}
 
         {/* Stops */}
         <circle cx="200" cy="200" r="10" fill="white" stroke="#334155" strokeWidth="3" />

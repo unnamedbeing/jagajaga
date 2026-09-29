@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 function App() {
   const [activeTab, setActiveTab] = useState('home');
+    const [routePath, setRoutePath] = useState([]);
 
   return (
     <div className="h-screen w-full bg-slate-50 overflow-hidden flex flex-col font-sans selection:bg-[#FCD0A1] selection:text-[#6D1A36] relative">
@@ -42,7 +43,7 @@ function App() {
 
       {/* Main Map Background (Always Present) */}
     <main className="absolute inset-0 z-0">
-        <TransitMap />
+        <TransitMap routePath={routePath} />
         
         {/* Home Screen Layer */}
         <AnimatePresence>
@@ -52,11 +53,11 @@ function App() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="absolute inset-0 z-10 flex flex-col justify-end p-4 pb-28 pointer-events-none"
+              className="absolute inset-0 z-10 flex flex-col justify-end p-4 pb-18 pointer-events-none"
             >
                 <div className="w-full max-w-lg mx-auto pointer-events-auto">
                     {/* Passing our custom theme colors can be supported down inside subcomponents if needed */}
-                    <RouteSearch />
+                                        <RouteSearch onRouteChange={setRoutePath} />
                 </div>
             </motion.div>
           )}
@@ -151,14 +152,6 @@ function App() {
 
       {/* Persistent App Bottom Nav */}
       <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
-      
-      {/* Search Trigger (Mobile App Pattern) */}
-      <div className="absolute top-24 left-1/2 -translate-x-1/2 w-[90%] max-w-lg z-30">
-          <div className="bg-white p-3 rounded-2xl shadow-xl flex items-center gap-3 border border-zinc-100 pointer-events-auto cursor-pointer active:scale-95 hover:border-[#FCD0A1] transition-all">
-            <Search size={20} className="text-[#6D1A36]" />
-            <span className="text-zinc-400 text-sm font-medium">Search for stations, lines, or tips...</span>
-          </div>
-      </div>
 
     </div>
   );
