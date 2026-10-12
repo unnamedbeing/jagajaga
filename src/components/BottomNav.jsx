@@ -1,16 +1,16 @@
-import { Home, Bookmark, Bell, User } from 'lucide-react';
+import { Home, Bookmark, Bell, Shield } from 'lucide-react';
 import { cn } from '../utils/cn';
 
-const BottomNav = ({ activeTab, setActiveTab }) => {
+const BottomNav = ({ activeTab, setActiveTab, isAdmin }) => {
   const tabs = [
     { id: 'home', icon: Home, label: 'Home' },
     { id: 'saved', icon: Bookmark, label: 'Saved' },
     { id: 'alerts', icon: Bell, label: 'Alerts' },
-    { id: 'profile', icon: User, label: 'Profile' },
+    ...(isAdmin ? [{ id: 'admin', icon: Shield, label: 'Admin' }] : []),
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-zinc-100 pb-4 pt-3 px-6 z-50 flex justify-between items-center shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
+    <div className="theme-panel fixed bottom-0 left-0 right-0 bg-white border-t border-zinc-100 pb-4 pt-3 px-6 z-50 flex justify-between items-center shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
       {tabs.map((tab) => (
         <button
           key={tab.id}

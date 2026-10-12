@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { MapPin, Clock, MessageSquare, Train, Bus, Info, ChevronDown, ChevronUp, ArrowRight, ArrowDownUp, Bike, CarFront, X, LocateFixed, Flag, BookmarkPlus } from 'lucide-react';
+import { MapPin, Clock, MessageSquare, Train, Bus, Info, ChevronDown, ChevronUp, ArrowRight, ArrowDownUp, Bike, CarFront, X, LocateFixed, Flag } from 'lucide-react';
 import { cn } from '../utils/cn';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -460,7 +460,7 @@ const LOCATION_METADATA = {
   "Kuje": { coords: [8.8783, 7.2342], type: "Outer Suburban Hub" },
 };
 
-const TRANSIT_LOCATIONS = Object.keys(VERIFIED_ABUJA_TRANSIT).sort();
+export const TRANSIT_LOCATIONS = Object.keys(VERIFIED_ABUJA_TRANSIT).sort();
 
 const buildRouteCoordinates = (result) => {
   if (!result || result.error || !Array.isArray(result.path)) {
@@ -542,7 +542,7 @@ const formatRouteResult = (start, destination) => {
   return { error: 'No connected route is mapped between those locations.' };
 };
 
-const RouteSearch = ({ onRouteChange, onDestinationQueryChange, onUseLocation, onClearLocation, currentLocation, onSaveTrip, onSavePlace, onReport, isSignedIn }) => {
+const RouteSearch = ({ onRouteChange, onDestinationQueryChange, onUseLocation, onClearLocation, currentLocation, onSaveTrip, onReport, onRecordSearch, onSubmitRoute, onSubmitFeedback, isSignedIn, savedTrip }) => {
   const [origin, setOrigin] = useState('Sun City');
   const [destination, setDestination] = useState('Sunny Vale');
   const [showRoutes, setShowRoutes] = useState(false);
@@ -550,6 +550,18 @@ const RouteSearch = ({ onRouteChange, onDestinationQueryChange, onUseLocation, o
   const [originSuggestionsOpen, setOriginSuggestionsOpen] = useState(false);
   const [destinationSuggestionsOpen, setDestinationSuggestionsOpen] = useState(false);
   const [routeResult, setRouteResult] = useState(() => formatRouteResult('Sun City', 'Sunny Vale'));
+  const [routeName, setRouteName] = useState('');
+  const [isNamingRoute, setIsNamingRoute] = useState(false);
+  const [isSavingRoute, setIsSavingRoute] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [showSubmissionForm, setShowSubmissionForm] = useState(false);
+  const [submissionStops, setSubmissionStops] = useState('');
+  const [submissionFare, setSubmissionFare] = useState('');
+  const [submissionLandmarks, setSubmissionLandmarks] = useState('');
+  const [feedbackRating, setFeedbackRating] = useState(5);
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [feedbackTags, setFeedbackTags] = useState([]);
+  const [feedbackMessage, setFeedbackMessage] = useState('');
   const dragStartY = useRef(0);
   const dragCurrentY = useRef(0);
 
@@ -561,6 +573,20 @@ const RouteSearch = ({ onRouteChange, onDestinationQueryChange, onUseLocation, o
       setOrigin('');
     }
   }, [currentLocation]);
+
+  useEffect(() => {
+    if (!savedTrip) return;
+
+    const savedPath = Array.isArray(savedTrip.route_data?.path) ? savedTrip.route_data.path : [];
+    setOrigin(savedTrip.origin);
+    setDestination(savedTrip.destination);
+    setRouteResult(savedPath.length
+      ? formatRouteResult(savedTrip.origin, savedTrip.destination)
+      : { building: true, path: [], totalTime: null });
+    setShowRoutes(true);
+    setIsMinimized(false);
+    setSaveMessage('Saved route loaded.');
+  }, [savedTrip]);
 
   useEffect(() => {
     onRouteChange?.(buildRouteCoordinates(routeResult));
@@ -622,6 +648,7 @@ const RouteSearch = ({ onRouteChange, onDestinationQueryChange, onUseLocation, o
     setRouteResult(nextResult);
     onDestinationQueryChange?.(isSpecificLocation ? validDest : '');
     onRouteChange?.(buildRouteCoordinates(nextResult));
+    onRecordSearch?.({ origin: validOrigin, destination: validDest });
   };
 
   const handleSwapLocations = () => {
@@ -632,11 +659,59 @@ const RouteSearch = ({ onRouteChange, onDestinationQueryChange, onUseLocation, o
   };
 
   const handleAddDirections = async () => {
-    await onSaveTrip?.({
-      origin,
-      destination,
-      routeData: { path: routeResult.path || [], currentLocation },
-    });
+    if (!isSignedIn) {
+      setSaveMessage('Sign in to save routes.');
+      return;
+    }
+
+    const trimmedName = routeName.trim();
+    if (!trimmedName) {
+      setIsNamingRoute(true);
+      setSaveMessage('Give this saved route a name.');
+      return;
+    }
+
+    setIsSavingRoute(true);
+    setSaveMessage('');
+    try {
+      await onSaveTrip?.({
+        routeName: trimmedName,
+        origin,
+        destination,
+        routeData: { path: routeResult.path || [], currentLocation },
+      });
+      setSaveMessage('Route saved to Transit History.');
+      setRouteName('');
+      setIsNamingRoute(false);
+    } catch (error) {
+      setSaveMessage(error.message || 'Could not save route.');
+    } finally {
+      setIsSavingRoute(false);
+    }
+  };
+
+  const handleSubmitRoute = async () => {
+    if (!isSignedIn) {
+      setSaveMessage('Sign in to submit a route.');
+      return;
+    }
+    await onSubmitRoute?.({ origin, destination, stops: submissionStops.split(',').map((stop) => stop.trim()).filter(Boolean), fare: submissionFare, landmarks: submissionLandmarks });
+    setShowSubmissionForm(false);
+    setSubmissionStops('');
+    setSubmissionFare('');
+    setSubmissionLandmarks('');
+    setSaveMessage('Route submitted for review.');
+  };
+
+  const handleSubmitFeedback = async () => {
+    if (!isSignedIn) {
+      setFeedbackMessage('Sign in to rate this route.');
+      return;
+    }
+    await onSubmitFeedback?.({ routeName: `${origin} to ${destination}`, rating: feedbackRating, comment: feedbackComment, tags: feedbackTags });
+    setFeedbackComment('');
+    setFeedbackTags([]);
+    setFeedbackMessage('Thanks. Your feedback is awaiting moderation.');
   };
 
   const handlePointerDown = (event) => {
@@ -720,12 +795,6 @@ const RouteSearch = ({ onRouteChange, onDestinationQueryChange, onUseLocation, o
               <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400">Transit</div>
               <div className="font-bold text-zinc-900 text-sm">{origin} → {destination}</div>
             </div>
-            <button
-              onClick={() => setIsMinimized(false)}
-              className="px-3 py-1.5 rounded-xl bg-[#6D1A36] text-[#FCD0A1] text-xs font-bold"
-            >
-              Expand
-            </button>
           </motion.div>
         ) : (
           <motion.div
@@ -886,28 +955,33 @@ const RouteSearch = ({ onRouteChange, onDestinationQueryChange, onUseLocation, o
                   </button>
                 </div>
 
-                <div className="mb-4 flex gap-2">
+                <div className="mb-4 space-y-2">
+                  {isNamingRoute && (
+                    <input
+                      type="text"
+                      value={routeName}
+                      onChange={(event) => setRouteName(event.target.value)}
+                      placeholder="Name this route"
+                      maxLength={80}
+                      autoFocus
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#6D1A36]"
+                    />
+                  )}
+                  <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={handleAddDirections}
-                    disabled={!isSignedIn}
+                    disabled={isSavingRoute}
                     className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#6D1A36] px-3 py-2 text-xs font-bold text-[#FCD0A1] disabled:cursor-not-allowed disabled:opacity-50"
-                    title={isSignedIn ? 'Save this trip to Transit History' : 'Sign in to add directions'}
+                    title={isNamingRoute ? 'Save this named route' : 'Save this route and destination'}
                   >
-                    <ArrowRight size={14} /> Add Directions
+                    <ArrowRight size={14} /> {isSavingRoute ? 'Saving...' : isNamingRoute ? 'Confirm save' : 'Save'}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => onSavePlace?.({ label: destination, address: destination })}
-                    disabled={!isSignedIn}
-                    className="flex items-center justify-center gap-2 rounded-xl border border-zinc-200 px-3 py-2 text-xs font-bold text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    title={isSignedIn ? 'Save this place' : 'Sign in to save places'}
-                  >
-                    <BookmarkPlus size={14} /> Save
-                  </button>
+                  </div>
+                  {saveMessage && <p className="text-xs font-semibold text-zinc-500">{saveMessage}</p>}
                 </div>
 
-                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-2 pb-20 scrollbar-hide">
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-2 pb-4 scrollbar-hide">
                   {routeResult?.building ? (
                     <div className="rounded-2xl border border-[#FCD0A1] bg-[#FFF7F0] p-4 text-sm text-zinc-700">
                       <div className="font-bold text-zinc-900">Specific location</div>
@@ -990,6 +1064,32 @@ const RouteSearch = ({ onRouteChange, onDestinationQueryChange, onUseLocation, o
                     <Info size={14} className="shrink-0" />
                     <span>Fares are indicative and can vary with peak/off-peak traffic.</span>
                   </div>
+                  <button type="button" onClick={() => setShowSubmissionForm((open) => !open)} className="flex w-full items-center justify-center rounded-xl border border-[#FCD0A1] px-3 py-2.5 text-xs font-bold text-[#6D1A36] hover:bg-[#FFF7F0]">Submit a new route</button>
+                  {showSubmissionForm && (
+                    <div className="space-y-2 rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
+                      <input value={submissionStops} onChange={(event) => setSubmissionStops(event.target.value)} placeholder="Stops, separated by commas" className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm" />
+                      <input value={submissionFare} onChange={(event) => setSubmissionFare(event.target.value)} placeholder="Fare (optional)" className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm" />
+                      <input value={submissionLandmarks} onChange={(event) => setSubmissionLandmarks(event.target.value)} placeholder="Landmarks or notes (optional)" className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm" />
+                      <button type="button" onClick={handleSubmitRoute} className="w-full rounded-lg bg-[#6D1A36] px-3 py-2 text-xs font-bold text-[#FCD0A1]">Submit route</button>
+                    </div>
+                  )}
+                  <div className="rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
+                    <h4 className="text-sm font-bold text-zinc-900">Rate this route</h4>
+                    <div className="mt-2 flex gap-1">{[1, 2, 3, 4, 5].map((rating) => <button key={rating} type="button" onClick={() => setFeedbackRating(rating)} className={`text-lg ${rating <= feedbackRating ? 'text-amber-500' : 'text-zinc-300'}`} aria-label={`${rating} stars`}>★</button>)}</div>
+                    <div className="mt-2 flex flex-wrap gap-2">{['fast', 'crowded', 'unsafe at night'].map((tag) => <button key={tag} type="button" onClick={() => setFeedbackTags((current) => current.includes(tag) ? current.filter((item) => item !== tag) : [...current, tag])} className={`rounded-full border px-2 py-1 text-[10px] font-bold ${feedbackTags.includes(tag) ? 'border-[#6D1A36] bg-[#FFF7F0] text-[#6D1A36]' : 'border-zinc-200 text-zinc-500'}`}>{tag}</button>)}</div>
+                    <textarea value={feedbackComment} onChange={(event) => setFeedbackComment(event.target.value)} placeholder="Leave a comment" className="mt-2 min-h-16 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm" />
+                    <button type="button" onClick={handleSubmitFeedback} className="mt-2 w-full rounded-lg border border-zinc-300 px-3 py-2 text-xs font-bold text-zinc-700">Submit feedback</button>
+                    {feedbackMessage && <p className="mt-2 text-xs font-semibold text-zinc-500">{feedbackMessage}</p>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onReport?.({ reportType: 'route_issue', locationName: `${origin} to ${destination}`, message: `Reported route: ${origin} to ${destination}` })}
+                    disabled={!isSignedIn}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 px-3 py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    title={isSignedIn ? 'Report this route' : 'Sign in to report this route'}
+                  >
+                    <Flag size={14} /> Report route
+                  </button>
                 </div>
               </div>
               </motion.div>

@@ -37,18 +37,21 @@ function loadGoogleMaps() {
 }
 
 const locations = {
-  current: [-73.9857, 40.7484],
-  destination: [-73.9772, 40.7527],
+  current: [7.3986, 9.0765],
+  destination: [7.4951, 9.0556],
 };
 
-function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocation = null }) {
+function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocation = null, selectedPlace = null, nearestStops = [], onMapCenterChange }) {
   const mapContainer = useRef(null);
   const map = useRef(null);
   const startMarker = useRef(null);
   const endMarker = useRef(null);
   const locationMarker = useRef(null);
+  const stopMarkers = useRef([]);
+  const selectedPlaceMarker = useRef(null);
   const [mapError, setMapError] = useState('');
   const [roadRoute, setRoadRoute] = useState([]);
+  const [walkingRoute, setWalkingRoute] = useState([]);
   const [lastMile, setLastMile] = useState(null);
 
   useEffect(() => {
@@ -62,6 +65,11 @@ function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocati
       style: 'mapbox://styles/mapbox/streets-v12',
       center: locations.current,
       zoom: 13.5,
+    });
+    onMapCenterChange?.(locations.current);
+    map.current.on('moveend', () => {
+      const center = map.current.getCenter();
+      onMapCenterChange?.([center.lng, center.lat]);
     });
 
     map.current.on('error', (event) => {
@@ -79,6 +87,69 @@ function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocati
       map.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!map.current || !selectedPlace || !map.current.isStyleLoaded()) return;
+    map.current.flyTo({ center: [selectedPlace.longitude, selectedPlace.latitude], zoom: 15, duration: 900 });
+    selectedPlaceMarker.current?.remove();
+    selectedPlaceMarker.current = new mapboxgl.Marker({ color: '#0f172a' })
+      .setLngLat([selectedPlace.longitude, selectedPlace.latitude])
+      .setPopup(new mapboxgl.Popup({ offset: 25 }).setText(selectedPlace.placeName || selectedPlace.name || 'Selected place'))
+      .addTo(map.current);
+  }, [selectedPlace]);
+
+  useEffect(() => {
+    if (!map.current || !map.current.isStyleLoaded()) return;
+    stopMarkers.current.forEach((marker) => marker.remove());
+    stopMarkers.current = nearestStops.map((stop, index) => new mapboxgl.Marker({ color: index === 0 ? '#6D1A36' : '#D97706' })
+      .setLngLat([stop.longitude, stop.latitude])
+      .setPopup(new mapboxgl.Popup({ offset: 25 }).setText(`${stop.name} · ${Math.round(stop.distanceMeters)} m`))
+      .addTo(map.current));
+  }, [nearestStops]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const nearestStop = nearestStops[0];
+    if (!mapboxToken || !currentLocation || !nearestStop) return undefined;
+
+    const coordinates = `${currentLocation.longitude},${currentLocation.latitude};${nearestStop.longitude},${nearestStop.latitude}`;
+    fetch(`https://api.mapbox.com/directions/v5/mapbox/walking/${coordinates}?geometries=geojson&overview=full&access_token=${mapboxToken}`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`Walking directions failed with status ${response.status}`);
+        return response.json();
+      })
+      .then((data) => {
+        if (!cancelled) setWalkingRoute(data.routes?.[0]?.geometry?.coordinates || []);
+      })
+      .catch((error) => {
+        console.error('Mapbox walking directions failed:', error);
+        if (!cancelled) setWalkingRoute([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentLocation, nearestStops]);
+
+  useEffect(() => {
+    if (!map.current || !map.current.isStyleLoaded()) return;
+    const sourceId = 'walking-route-source';
+    const layerId = 'walking-route-layer';
+    if (map.current.getLayer(layerId)) map.current.removeLayer(layerId);
+    if (map.current.getSource(sourceId)) map.current.removeSource(sourceId);
+    if (walkingRoute.length < 2) return;
+    map.current.addSource(sourceId, {
+      type: 'geojson',
+      data: { type: 'Feature', geometry: { type: 'LineString', coordinates: walkingRoute } },
+    });
+    map.current.addLayer({
+      id: layerId,
+      type: 'line',
+      source: sourceId,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#2563eb', 'line-width': 5, 'line-dasharray': [1, 1] },
+    });
+  }, [walkingRoute]);
 
   const drawRoute = () => {
     if (!map.current || !map.current.isStyleLoaded()) {
@@ -443,10 +514,10 @@ function GoogleTransitMap({ routePath = [], onError, currentLocation = null }) {
   );
 }
 
-export default function TransitMap({ routePath = [], destinationQuery = '', currentLocation = null }) {
+export default function TransitMap({ routePath = [], destinationQuery = '', currentLocation = null, selectedPlace = null, nearestStops = [], onMapCenterChange }) {
   const [provider, setProvider] = useState(googleMapsKey ? 'google' : 'mapbox');
 
-  if (provider === 'google' && !destinationQuery.trim()) {
+  if (provider === 'google' && !destinationQuery.trim() && !selectedPlace) {
     return <GoogleTransitMap routePath={routePath} currentLocation={currentLocation} onError={() => setProvider('mapbox')} />;
   }
 
@@ -461,5 +532,5 @@ export default function TransitMap({ routePath = [], destinationQuery = '', curr
     );
   }
 
-  return <MapboxTransitMap routePath={routePath} destinationQuery={destinationQuery} currentLocation={currentLocation} />;
+  return <MapboxTransitMap routePath={routePath} destinationQuery={destinationQuery} currentLocation={currentLocation} selectedPlace={selectedPlace} nearestStops={nearestStops} onMapCenterChange={onMapCenterChange} />;
 }

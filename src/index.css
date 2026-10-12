@@ -1,1 +1,52 @@
 @import "tailwindcss";
+
+.app-dark {
+	background: #11191f;
+	color: #f4f1ea;
+}
+
+.app-dark .theme-panel {
+	background-color: rgba(30, 42, 49, 0.97);
+	border-color: rgba(126, 148, 154, 0.38);
+	color: #f4f1ea;
+}
+
+.app-dark .theme-panel .text-zinc-900,
+.app-dark .theme-panel .text-zinc-800,
+.app-dark .theme-panel .text-zinc-700 {
+	color: #f4f1ea;
+}
+
+.app-dark .theme-panel .text-zinc-600,
+.app-dark .theme-panel .text-zinc-500,
+.app-dark .theme-panel .text-zinc-400 {
+	color: #a9b5b8;
+}
+
+.app-dark .theme-panel input,
+.app-dark .theme-panel select,
+.app-dark .theme-panel textarea {
+	background-color: #26343b;
+	border-color: #52666d;
+	color: #f4f1ea;
+}
+
+.app-dark .theme-panel .bg-zinc-50 {
+	background-color: #26343b;
+	border-color: #40545b;
+}
+
+.app-dark .theme-panel .bg-zinc-100 {
+	background-color: #304149;
+	border-color: #52666d;
+}
+
+.app-dark .theme-panel .border-zinc-200,
+.app-dark .theme-action {
+	border-color: #52666d;
+	color: #dce6e5;
+}
+
+.app-dark .theme-action:hover {
+	background-color: #304149;
+}
