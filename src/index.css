@@ -1,8 +1,84 @@
 @import "tailwindcss";
 
+:root {
+	--jj-color-accent: #6d1a36;
+	--jj-color-location: #2563eb;
+	--jj-color-map-route: #6d1a36;
+	--jj-radius-control: 16px;
+	--jj-shadow-control: 0 10px 30px rgba(35, 20, 28, 0.14);
+}
+
 .app-dark {
 	background: #11191f;
 	color: #f4f1ea;
+}
+
+.jj-location-marker {
+	width: 18px;
+	height: 18px;
+	border: 3px solid white;
+	border-radius: 999px;
+	background: var(--jj-color-location);
+	box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.18), 0 3px 12px rgba(15, 23, 42, 0.3);
+	position: relative;
+}
+
+.jj-location-marker::after {
+	content: '';
+	position: absolute;
+	inset: -7px;
+	border: 2px solid rgba(37, 99, 235, 0.38);
+	border-radius: inherit;
+	animation: jj-location-pulse 2s ease-out infinite;
+}
+
+.jj-stop-marker {
+	width: 14px;
+	height: 14px;
+	border: 3px solid white;
+	border-radius: 999px;
+	background: var(--jj-color-accent);
+	box-shadow: 0 3px 10px rgba(35, 20, 28, 0.3);
+}
+
+.jj-database-stop-marker {
+	width: 30px;
+	height: 30px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 2px solid #fff;
+	border-radius: 50%;
+	color: #fff;
+	box-shadow: 0 2px 9px rgba(15, 23, 42, 0.38);
+}
+
+.jj-database-stop-marker--major {
+	background: #6d1a36;
+}
+
+.jj-database-stop-marker--local {
+	background: #2563eb;
+}
+
+.jj-database-stop-marker--bike {
+	background: #0f766e;
+}
+
+.jj-database-stop-marker--airport {
+	background: #c2410c;
+}
+
+@keyframes jj-location-pulse {
+	0% { transform: scale(0.7); opacity: 0.9; }
+	70%, 100% { transform: scale(1.35); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.jj-location-marker::after {
+		animation: none;
+		opacity: 0.4;
+	}
 }
 
 .app-dark .theme-panel {

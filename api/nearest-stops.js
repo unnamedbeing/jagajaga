@@ -6,12 +6,16 @@ function parseCoordinates(req) {
   const latitude = Number(req.query.lat);
   const longitude = Number(req.query.lng);
   const radius = Number(req.query.radius ?? 500);
+  const excludeStopId = req.query.excludeStopId === undefined
+    ? null
+    : Number(req.query.excludeStopId);
   if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90
     || !Number.isFinite(longitude) || longitude < -180 || longitude > 180
-    || !Number.isFinite(radius) || radius <= 0 || radius > 10000) {
+    || !Number.isFinite(radius) || radius <= 0 || radius > 10000
+    || (excludeStopId !== null && (!Number.isInteger(excludeStopId) || excludeStopId <= 0))) {
     return null;
   }
-  return { latitude, longitude, radius };
+  return { latitude, longitude, radius, excludeStopId };
 }
 
 export async function nearestStopsHandler(req, res) {
@@ -20,10 +24,10 @@ export async function nearestStopsHandler(req, res) {
 
   try {
     const sql = getSql();
-    const { latitude, longitude, radius } = coordinates;
-    for (const searchRadius of [radius, 1000, 2000]) {
-      const rows = await sql`
-        SELECT id, name, city, votes, source, created_at,
+    const { latitude, longitude, radius, excludeStopId } = coordinates;
+    const rows = await sql`
+      (
+        SELECT id, name, city, votes, source, stop_type, is_major, created_at,
                ST_Y(geom::geometry) AS latitude,
                ST_X(geom::geometry) AS longitude,
                ST_Distance(
@@ -31,21 +35,39 @@ export async function nearestStopsHandler(req, res) {
                  ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)::geography
                )::float AS "distanceMeters"
         FROM bus_stops
-        WHERE ST_DWithin(
-          geom,
-          ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)::geography,
-          ${searchRadius}
-        )
-        ORDER BY ST_Distance(
-          geom,
-          ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)::geography
-        )
+        WHERE is_major = TRUE
+          AND (${excludeStopId}::bigint IS NULL OR id <> ${excludeStopId})
+          AND ST_DWithin(
+            geom,
+            ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)::geography,
+            10000
+          )
+        ORDER BY "distanceMeters" ASC
         LIMIT 5
-      `;
-      if (rows.length > 0 || searchRadius === 2000) {
-        return res.json({ stops: rows, radiusMeters: searchRadius });
-      }
-    }
+      )
+      UNION ALL
+      (
+        SELECT id, name, city, votes, source, stop_type, is_major, created_at,
+               ST_Y(geom::geometry) AS latitude,
+               ST_X(geom::geometry) AS longitude,
+               ST_Distance(
+                 geom,
+                 ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)::geography
+               )::float AS "distanceMeters"
+        FROM bus_stops
+        WHERE is_major = FALSE
+          AND (${excludeStopId}::bigint IS NULL OR id <> ${excludeStopId})
+          AND ST_DWithin(
+            geom,
+            ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)::geography,
+            ${Math.min(radius, 3000)}
+          )
+        ORDER BY "distanceMeters" ASC
+        LIMIT 5
+      )
+      ORDER BY is_major DESC, "distanceMeters" ASC
+    `;
+    return res.json({ stops: rows, radiusMeters: Math.max(10000, Math.min(radius, 3000)) });
   } catch (error) {
     console.error('Nearest stops query failed:', error);
     return res.status(500).json({ error: 'Could not find nearby bus stops.' });

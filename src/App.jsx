@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Show, SignInButton, useAuth, useClerk, useUser } from '@clerk/react';
 import TransitMap from './components/TransitMap';
-import SearchBox from './components/SearchBox';
 import useNearestStops from './hooks/useNearestStops';
 import RouteSearch from './components/RouteSearch';
-import { TRANSIT_LOCATIONS } from './components/RouteSearch';
 import BottomNav from './components/BottomNav';
-import { Search, Layers, Settings, ArrowRight, ArrowLeft, Sun, Moon, Globe, Check, X, MoreVertical } from 'lucide-react';
+import { Search, Map as MapIcon, Satellite, Settings, LocateFixed, ArrowRight, ArrowLeft, Sun, Moon, Globe, Check, X, MoreVertical } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiRequest } from './utils/api';
+import { API_URL } from './utils/api';
+import ActionProgress from './components/ActionProgress';
 
 const getTabFromLocation = () => {
         const tab = window.location.pathname.split('/').filter(Boolean).at(-1);
@@ -23,9 +23,13 @@ function App() {
     const [routePath, setRoutePath] = useState([]);
     const [destinationQuery, setDestinationQuery] = useState('');
     const [currentLocation, setCurrentLocation] = useState(null);
+    const [isLocating, setIsLocating] = useState(false);
     const [selectedPlace, setSelectedPlace] = useState(null);
+    const [walkingRouteInfo, setWalkingRouteInfo] = useState(null);
+    const [transitRoute, setTransitRoute] = useState(null);
     const [mapCenter, setMapCenter] = useState([7.3986, 9.0765]);
     const { stops: nearestStops, loading: nearestStopsLoading, error: nearestStopsError, findNearestStops, suggestStop } = useNearestStops();
+    const [managedLocations, setManagedLocations] = useState([]);
     const [dashboard, setDashboard] = useState({ profile: null, points: 0, savedPlaces: [], trips: [], reports: [] });
     const [dataError, setDataError] = useState('');
     const [settingsOpen, setSettingsOpen] = useState(false);
@@ -49,7 +53,18 @@ function App() {
     const [adminDialogError, setAdminDialogError] = useState('');
     const [isSavingAdminDialog, setIsSavingAdminDialog] = useState(false);
     const [theme, setTheme] = useState(() => localStorage.getItem('jagajaga-theme') || 'light');
+    const [mapStyle, setMapStyle] = useState(() => localStorage.getItem('jagajaga-map-style') === 'satellite' ? 'satellite' : 'streets');
     const [language, setLanguage] = useState(() => localStorage.getItem('jagajaga-language') || 'en');
+
+    useEffect(() => {
+        fetch(`${API_URL}/api/locations`)
+            .then((response) => {
+                if (!response.ok) throw new Error('Could not load available locations.');
+                return response.json();
+            })
+            .then(({ locations = [] }) => setManagedLocations(locations))
+            .catch(() => setDataError('Could not load JagaJaga locations. Check that the API server is running.'));
+    }, []);
 
     useEffect(() => {
         const syncTabFromLocation = () => setActiveTab(getTabFromLocation());
@@ -68,6 +83,10 @@ function App() {
     useEffect(() => {
         localStorage.setItem('jagajaga-theme', theme);
     }, [theme]);
+
+    useEffect(() => {
+        localStorage.setItem('jagajaga-map-style', mapStyle);
+    }, [mapStyle]);
 
     useEffect(() => {
         localStorage.setItem('jagajaga-language', language);
@@ -156,8 +175,11 @@ function App() {
             return;
         }
 
+        setIsLocating(true);
         navigator.geolocation.getCurrentPosition(
             ({ coords }) => {
+                setIsLocating(false);
+                if (isSignedIn) localStorage.setItem('jagajaga-use-current-location', 'true');
                 const location = { latitude: coords.latitude, longitude: coords.longitude };
                 setCurrentLocation(location);
                 setSelectedPlace({
@@ -168,14 +190,47 @@ function App() {
                 });
                 findNearestStops(location).catch(() => {});
             },
-            () => setDataError('Location access was denied. Type a starting place instead.'),
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
+            () => {
+                setIsLocating(false);
+                setDataError('Location access was denied. Type a starting place instead.');
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000, },
         );
     };
 
+    useEffect(() => {
+        if (isSignedIn && localStorage.getItem('jagajaga-use-current-location') === 'true') {
+            handleUseLocation();
+        }
+    }, [isSignedIn]);
+
+    const handleClearLocation = () => {
+        setCurrentLocation(null);
+        setSelectedPlace(null);
+        localStorage.removeItem('jagajaga-use-current-location');
+    };
+
     const handlePlaceSelect = (place) => {
+        if (!place) {
+            setSelectedPlace(null);
+            setWalkingRouteInfo(null);
+            setTransitRoute(null);
+            return;
+        }
         setSelectedPlace(place);
+        setTransitRoute(null);
         findNearestStops({ latitude: place.latitude, longitude: place.longitude }).catch(() => {});
+        if (!place.originStopId || !place.destinationStopId) return;
+
+        setTransitRoute({ loading: true });
+        fetch(`${API_URL}/api/transit-route?originStopId=${encodeURIComponent(place.originStopId)}&destinationStopId=${encodeURIComponent(place.destinationStopId)}`)
+            .then(async (response) => {
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.error || 'No transit route available');
+                return data;
+            })
+            .then((route) => setTransitRoute(route))
+            .catch((error) => setTransitRoute({ error: error.message || 'No transit route available' }));
     };
 
     const saveTrip = async (trip) => {
@@ -362,11 +417,21 @@ function App() {
                         <button className="px-3 py-2.5 bg-[#6D1A36] text-[#FCD0A1] rounded-2xl shadow-lg font-bold text-sm active:scale-95 transition-all">Sign in</button>
                     </SignInButton>
                 </Show>
-                <button className="theme-panel p-2.5 bg-white/90 backdrop-blur-md rounded-2xl shadow-lg border border-white/20 text-zinc-600 hover:text-[#6D1A36] active:scale-95 transition-all">
-                    <Layers size={20} />
+                <button
+                    type="button"
+                    onClick={() => setMapStyle((style) => style === 'satellite' ? 'streets' : 'satellite')}
+                    aria-label={mapStyle === 'satellite' ? 'Switch to street map' : 'Switch to satellite imagery'}
+                    aria-pressed={mapStyle === 'satellite'}
+                    title={mapStyle === 'satellite' ? 'Switch to street map' : 'Switch to satellite imagery'}
+                    className="theme-panel p-2.5 bg-white/90 backdrop-blur-md rounded-2xl shadow-lg border border-white/20 text-zinc-600 hover:text-[#6D1A36] active:scale-95 transition-all"
+                >
+                    {mapStyle === 'satellite' ? <MapIcon size={20} /> : <Satellite size={20} />}
                 </button>
                 <button onClick={() => setSettingsOpen(true)} aria-label={copy.settings} className="theme-panel p-2.5 bg-white/90 backdrop-blur-md rounded-2xl shadow-lg border border-white/20 text-zinc-600 hover:text-[#6D1A36] active:scale-95 transition-all">
                     <Settings size={20} />
+                </button>
+                <button onClick={requestLocation} aria-label="Locate me" className="theme-panel p-2.5 bg-white/90 backdrop-blur-md rounded-2xl shadow-lg border border-white/20 text-zinc-600 hover:text-[#6D1A36] active:scale-95 transition-all">
+                    <LocateFixed size={20} />
                 </button>
             </div>
         </div>
@@ -374,27 +439,15 @@ function App() {
 
       {/* Main Map Background (Always Present) */}
     <main className="absolute inset-0 z-0">
-                {activeTab === 'home' && (
-                    <div className="absolute left-4 right-4 top-20 z-30 pointer-events-auto">
-                        <SearchBox
-                            mapCenter={mapCenter}
-                            selectedPlace={selectedPlace}
-                            nearestStops={nearestStops}
-                            loading={nearestStopsLoading}
-                            error={nearestStopsError}
-                            onSelect={handlePlaceSelect}
-                            onUseLocation={handleUseLocation}
-                            onSuggestStop={suggestStop}
-                        />
-                    </div>
-                )}
                 <TransitMap
                     routePath={routePath}
                     destinationQuery={destinationQuery}
                     currentLocation={currentLocation}
                     selectedPlace={selectedPlace}
                     nearestStops={nearestStops}
-                    onMapCenterChange={setMapCenter}
+                    busStops={managedLocations}
+                    mapStyle={mapStyle}
+                    onWalkingRouteChange={setWalkingRouteInfo}
                 />
 
                 {dataError && (
@@ -419,14 +472,21 @@ function App() {
                                             onRouteChange={setRoutePath}
                                             onDestinationQueryChange={setDestinationQuery}
                                             onUseLocation={requestLocation}
-                                              onClearLocation={() => setCurrentLocation(null)}
+                                              onClearLocation={handleClearLocation}
                                             currentLocation={currentLocation}
                                             onSaveTrip={saveTrip}
                                             onReport={saveReport}
                                             onRecordSearch={recordSearch}
                                             onSubmitRoute={submitRoute}
                                             onSubmitFeedback={submitFeedback}
-                                            isSignedIn={isSignedIn}
+                                                                    onSelectDestination={handlePlaceSelect}
+                                                                    walkingRouteInfo={walkingRouteInfo}
+                                                                    transitRoute={transitRoute}
+                                                                    nearestStops={nearestStops}
+                                                                    nearestStopsLoading={nearestStopsLoading}
+                                                                    nearestStopsError={nearestStopsError}
+                                                                    managedLocations={managedLocations}
+                                                                    isSignedIn={isSignedIn}
                                             savedTrip={savedTripToUse}
                                         />
                 </div>
@@ -447,10 +507,8 @@ function App() {
                                     <input autoFocus value={editingTripName} onChange={(event) => setEditingTripName(event.target.value)} className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-sm font-bold" />
                                 ) : editingTripId === trip.id && editingTripMode === 'locations' ? (
                                     <div className="space-y-2">
-                                        <input autoFocus list={`saved-start-${trip.id}`} value={editingTripOrigin} onChange={(event) => setEditingTripOrigin(event.target.value)} placeholder="Start location" className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-sm" />
-                                        <datalist id={`saved-start-${trip.id}`}>{TRANSIT_LOCATIONS.map((location) => <option key={location} value={location} />)}</datalist>
-                                        <input list={`saved-end-${trip.id}`} value={editingTripDestination} onChange={(event) => setEditingTripDestination(event.target.value)} placeholder="End location" className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-sm" />
-                                        <datalist id={`saved-end-${trip.id}`}>{TRANSIT_LOCATIONS.map((location) => <option key={location} value={location} />)}</datalist>
+                                        <input autoFocus value={editingTripOrigin} onChange={(event) => setEditingTripOrigin(event.target.value)} placeholder="Start location" className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-sm" />
+                                        <input value={editingTripDestination} onChange={(event) => setEditingTripDestination(event.target.value)} placeholder="End location" className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-sm" />
                                     </div>
                                 ) : (
                                     <h4 className="truncate font-bold text-zinc-900">{trip.route_name || 'Saved place'}</h4>
@@ -709,7 +767,9 @@ function App() {
                         {adminDialogError && <p role="alert" className="text-sm font-medium text-red-600">{adminDialogError}</p>}
                         <div className="flex justify-end gap-2 pt-1">
                             <button type="button" disabled={isSavingAdminDialog} onClick={() => setAdminDialog(null)} className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-bold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50">Cancel</button>
-                            <button type="submit" disabled={isSavingAdminDialog} className="rounded-lg bg-[#6D1A36] px-4 py-2 text-sm font-bold text-[#FCD0A1] hover:bg-[#58152c] disabled:opacity-60">{isSavingAdminDialog ? 'Saving...' : adminDialog.type === 'announcement' ? 'Publish' : adminDialog.type === 'location' ? 'Add location' : 'Save changes'}</button>
+                            <button type="submit" disabled={isSavingAdminDialog} className="rounded-lg bg-[#6D1A36] px-4 py-2 text-sm font-bold text-[#FCD0A1] hover:bg-[#58152c] disabled:opacity-60">
+                                {isSavingAdminDialog ? <ActionProgress label="Saving..." compact /> : adminDialog.type === 'announcement' ? 'Publish' : adminDialog.type === 'location' ? 'Add location' : 'Save changes'}
+                            </button>
                         </div>
                     </form>
                 </motion.section>

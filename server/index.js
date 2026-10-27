@@ -4,7 +4,9 @@ import express from "express";
 import { createClerkClient, verifyToken } from "@clerk/backend";
 import { neon } from "@neondatabase/serverless";
 import nearestStopsHandler from "../api/nearest-stops.js";
+import locationsHandler from "../api/locations.js";
 import stopsHandler from "../api/stops.js";
+import transitRouteHandler from "../api/transit-route.js";
 
 dotenv.config({ path: ".env.local" });
 dotenv.config();
@@ -65,6 +67,8 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.get("/api/nearest-stops", nearestStopsHandler);
+app.get("/api/transit-route", transitRouteHandler);
+app.get("/api/locations", locationsHandler);
 app.post("/api/stops", stopsHandler);
 
 app.get("/api/profile", requireAuth, async (req, res) => {

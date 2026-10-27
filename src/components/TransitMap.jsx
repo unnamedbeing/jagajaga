@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { Bike, Bus, CarFront, Plane } from 'lucide-react';
 import MockTransitMap from './MockTransitMap';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
-const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
-const googleMapsKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN;
+const hasPublicMapboxToken = mapboxToken?.startsWith('pk.');
 
 let googleMapsLoader;
 
@@ -41,31 +43,88 @@ const locations = {
   destination: [7.4951, 9.0556],
 };
 
-function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocation = null, selectedPlace = null, nearestStops = [], onMapCenterChange }) {
+const accentColor = '#6D1A36';
+const locationColor = '#2563EB';
+
+const createMarkerElement = (className) => {
+  const element = document.createElement('div');
+  element.className = className;
+  return element;
+};
+
+function createDatabaseStopMarker(stop) {
+  const stopType = (stop.stop_type || '').toLowerCase();
+  const details = stopType.includes('airport')
+    ? { Icon: Plane, category: 'airport' }
+    : /keke|okada/.test(stopType)
+      ? { Icon: Bike, category: 'bike' }
+      : /estate|village|local|district bus/.test(stopType)
+        ? { Icon: CarFront, category: 'local' }
+        : { Icon: Bus, category: 'major' };
+  const element = document.createElement('div');
+  element.className = `jj-database-stop-marker jj-database-stop-marker--${details.category}`;
+  element.setAttribute('aria-label', `${stop.name}, ${stop.stop_type || 'Bus stop'}`);
+  element.innerHTML = renderToStaticMarkup(<details.Icon aria-hidden="true" size={15} strokeWidth={2.4} />);
+  return element;
+}
+
+function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocation = null, selectedPlace = null, nearestStops = [], busStops = [], mapStyle = 'streets', onMapCenterChange, onWalkingRouteChange }) {
   const mapContainer = useRef(null);
   const map = useRef(null);
+  const initialMapStyle = useRef(mapStyle);
   const startMarker = useRef(null);
   const endMarker = useRef(null);
   const locationMarker = useRef(null);
   const stopMarkers = useRef([]);
+  const databaseStopMarkers = useRef([]);
   const selectedPlaceMarker = useRef(null);
+  const lastMileMarkers = useRef([]);
   const [mapError, setMapError] = useState('');
+  const [styleRevision, setStyleRevision] = useState(0);
   const [roadRoute, setRoadRoute] = useState([]);
   const [walkingRoute, setWalkingRoute] = useState([]);
   const [lastMile, setLastMile] = useState(null);
 
   useEffect(() => {
-    if (!mapContainer.current || map.current || !mapboxToken) {
+    if (!mapContainer.current || map.current || !hasPublicMapboxToken) {
       return undefined;
     }
 
     mapboxgl.accessToken = mapboxToken;
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/streets-v12',
+      style: mapStyle === 'satellite' ? 'mapbox://styles/mapbox/satellite-streets-v12' : 'mapbox://styles/mapbox/streets-v12',
       center: locations.current,
       zoom: 13.5,
     });
+    const applyStyleSettings = () => {
+      const layers = map.current.getStyle().layers || [];
+      layers.forEach((layer) => {
+        const id = layer.id.toLowerCase();
+        const isSuppressedPoi = /poi|hotel|pharmacy|hospital|clinic/.test(id);
+        const isDistrictLabel = /district|neighborhood|locality|place-label/.test(id);
+
+        if (isSuppressedPoi && layer.type === 'symbol') {
+          map.current.setLayoutProperty(layer.id, 'visibility', 'none');
+        }
+
+        if (isDistrictLabel && layer.type === 'symbol') {
+          if (layer.layout?.['text-font']) {
+            map.current.setLayoutProperty(layer.id, 'text-font', ['DIN Pro Medium', 'Arial Unicode MS Regular']);
+          }
+          if (layer.paint?.['text-color']) {
+            map.current.setPaintProperty(layer.id, 'text-color', '#64748B');
+          }
+          if (layer.paint?.['text-halo-color']) {
+            map.current.setPaintProperty(layer.id, 'text-halo-color', '#F5F3EF');
+          }
+        }
+      });
+    };
+    initialMapStyle.current = mapStyle;
+    const handleStyleLoad = () => setStyleRevision((revision) => revision + 1);
+    map.current.once('load', applyStyleSettings);
+    map.current.on('style.load', handleStyleLoad);
     onMapCenterChange?.(locations.current);
     map.current.on('moveend', () => {
       const center = map.current.getCenter();
@@ -77,22 +136,24 @@ function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocati
       setMapError('Mapbox could not render the live map. Check the browser console for details.');
     });
 
-    new mapboxgl.Marker({ color: '#6D1A36' })
-      .setLngLat(locations.destination)
-      .setPopup(new mapboxgl.Popup({ offset: 25 }).setText('Destination'))
-      .addTo(map.current);
-
     return () => {
+      map.current?.off('style.load', handleStyleLoad);
       map.current?.remove();
       map.current = null;
     };
   }, []);
 
   useEffect(() => {
+    if (!map.current || mapStyle === initialMapStyle.current) return;
+    initialMapStyle.current = mapStyle;
+    map.current.setStyle(mapStyle === 'satellite' ? 'mapbox://styles/mapbox/satellite-streets-v12' : 'mapbox://styles/mapbox/streets-v12');
+  }, [mapStyle]);
+
+  useEffect(() => {
     if (!map.current || !selectedPlace || !map.current.isStyleLoaded()) return;
     map.current.flyTo({ center: [selectedPlace.longitude, selectedPlace.latitude], zoom: 15, duration: 900 });
     selectedPlaceMarker.current?.remove();
-    selectedPlaceMarker.current = new mapboxgl.Marker({ color: '#0f172a' })
+    selectedPlaceMarker.current = new mapboxgl.Marker({ color: accentColor })
       .setLngLat([selectedPlace.longitude, selectedPlace.latitude])
       .setPopup(new mapboxgl.Popup({ offset: 25 }).setText(selectedPlace.placeName || selectedPlace.name || 'Selected place'))
       .addTo(map.current);
@@ -101,35 +162,75 @@ function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocati
   useEffect(() => {
     if (!map.current || !map.current.isStyleLoaded()) return;
     stopMarkers.current.forEach((marker) => marker.remove());
-    stopMarkers.current = nearestStops.map((stop, index) => new mapboxgl.Marker({ color: index === 0 ? '#6D1A36' : '#D97706' })
+    stopMarkers.current = nearestStops.map((stop) => new mapboxgl.Marker({ element: createMarkerElement('jj-stop-marker') })
       .setLngLat([stop.longitude, stop.latitude])
       .setPopup(new mapboxgl.Popup({ offset: 25 }).setText(`${stop.name} · ${Math.round(stop.distanceMeters)} m`))
       .addTo(map.current));
   }, [nearestStops]);
 
   useEffect(() => {
+    databaseStopMarkers.current.forEach((marker) => marker.remove());
+    databaseStopMarkers.current = busStops
+      .filter((stop) => stop.stop_id && Number.isFinite(Number(stop.longitude)) && Number.isFinite(Number(stop.latitude)))
+      .map((stop) => new mapboxgl.Marker({ element: createDatabaseStopMarker(stop), anchor: 'bottom' })
+        .setLngLat([Number(stop.longitude), Number(stop.latitude)])
+        .setPopup(new mapboxgl.Popup({ offset: 22 }).setText(`${stop.name} · ${stop.stop_type || 'Bus stop'}`))
+        .addTo(map.current));
+  }, [busStops]);
+
+  useEffect(() => {
     let cancelled = false;
     const nearestStop = nearestStops[0];
-    if (!mapboxToken || !currentLocation || !nearestStop) return undefined;
+    if (!hasPublicMapboxToken || !selectedPlace || !nearestStop) {
+      setWalkingRoute([]);
+      onWalkingRouteChange?.(null);
+      return undefined;
+    }
 
-    const coordinates = `${currentLocation.longitude},${currentLocation.latitude};${nearestStop.longitude},${nearestStop.latitude}`;
-    fetch(`https://api.mapbox.com/directions/v5/mapbox/walking/${coordinates}?geometries=geojson&overview=full&access_token=${mapboxToken}`)
+    onWalkingRouteChange?.({ loading: true, route: null, error: '' });
+    const stopDistance = Math.hypot(
+      (selectedPlace.longitude - nearestStop.longitude) * 111320 * Math.cos(selectedPlace.latitude * Math.PI / 180),
+      (selectedPlace.latitude - nearestStop.latitude) * 110540,
+    );
+    if (nearestStop.is_major && stopDistance <= 50) {
+      setWalkingRoute([]);
+      onWalkingRouteChange?.({
+        loading: false,
+        route: null,
+        directStop: nearestStop,
+        error: '',
+      });
+      return undefined;
+    }
+    const coordinates = `${selectedPlace.longitude},${selectedPlace.latitude};${nearestStop.longitude},${nearestStop.latitude}`;
+    fetch(`https://api.mapbox.com/directions/v5/mapbox/walking/${coordinates}?geometries=geojson&overview=full&steps=true&access_token=${mapboxToken}`)
       .then((response) => {
-        if (!response.ok) throw new Error(`Walking directions failed with status ${response.status}`);
+        if (response.status === 429) throw new Error('Walking directions are temporarily rate limited. Please try again shortly.');
+        if (!response.ok) throw new Error(`Walking directions failed with status ${response.status}.`);
         return response.json();
       })
       .then((data) => {
-        if (!cancelled) setWalkingRoute(data.routes?.[0]?.geometry?.coordinates || []);
+        const route = data.routes?.[0];
+        if (!route?.geometry?.coordinates?.length) {
+          throw new Error('Mapbox could not find a walking route to this bus stop.');
+        }
+        if (!cancelled) {
+          setWalkingRoute(route.geometry.coordinates);
+          onWalkingRouteChange?.({ loading: false, route, error: '' });
+        }
       })
       .catch((error) => {
         console.error('Mapbox walking directions failed:', error);
-        if (!cancelled) setWalkingRoute([]);
+        if (!cancelled) {
+          setWalkingRoute([]);
+          onWalkingRouteChange?.({ loading: false, route: null, error: error.message });
+        }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [currentLocation, nearestStops]);
+  }, [selectedPlace, nearestStops, onWalkingRouteChange]);
 
   useEffect(() => {
     if (!map.current || !map.current.isStyleLoaded()) return;
@@ -147,9 +248,9 @@ function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocati
       type: 'line',
       source: sourceId,
       layout: { 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': '#2563eb', 'line-width': 5, 'line-dasharray': [1, 1] },
+      paint: { 'line-color': accentColor, 'line-width': 5, 'line-dasharray': [1, 1] },
     });
-  }, [walkingRoute]);
+  }, [walkingRoute, styleRevision]);
 
   const drawRoute = () => {
     if (!map.current || !map.current.isStyleLoaded()) {
@@ -206,7 +307,7 @@ function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocati
           'line-join': 'round',
         },
         paint: {
-          'line-color': '#6D1A36',
+          'line-color': accentColor,
           'line-width': 5,
           'line-opacity': 0.95,
         },
@@ -221,8 +322,8 @@ function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocati
       duration: 700,
     });
 
-    startMarker.current = startMarker.current || new mapboxgl.Marker({ color: '#0f172a' });
-    endMarker.current = endMarker.current || new mapboxgl.Marker({ color: '#6D1A36' });
+    startMarker.current = startMarker.current || new mapboxgl.Marker({ element: createMarkerElement('jj-location-marker') });
+    endMarker.current = endMarker.current || new mapboxgl.Marker({ element: createMarkerElement('jj-stop-marker') });
     startMarker.current.setLngLat(routePath[0]).addTo(map.current);
     endMarker.current.setLngLat(routePath[routePath.length - 1]).addTo(map.current);
   };
@@ -230,7 +331,7 @@ function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocati
   useEffect(() => {
     let cancelled = false;
 
-    if (!mapboxToken || !routePath || routePath.length < 2) {
+    if (!hasPublicMapboxToken || !routePath || routePath.length < 2) {
       setRoadRoute([]);
       return undefined;
     }
@@ -267,7 +368,7 @@ function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocati
   useEffect(() => {
     let cancelled = false;
 
-    if (!mapboxToken || !destinationQuery.trim()) {
+    if (!hasPublicMapboxToken || !destinationQuery.trim()) {
       setLastMile(null);
       return undefined;
     }
@@ -279,16 +380,29 @@ function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocati
       return response.json();
     });
 
-    const geocodeUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(destinationQuery)}.json?country=ng&proximity=7.3986,9.0765&limit=1&access_token=${mapboxToken}`;
+    const geocodeParams = new URLSearchParams({
+      q: destinationQuery,
+      country: 'ng',
+      proximity: '7.3986,9.0765',
+      limit: '1',
+      access_token: mapboxToken,
+    });
+    const geocodeUrl = `https://api.mapbox.com/search/geocode/v6/forward?${geocodeParams}`;
 
     fetchJson(geocodeUrl)
       .then((buildingData) => {
-        const building = buildingData.features?.[0];
-        if (!building?.center) {
+        const feature = buildingData.features?.[0];
+        const center = feature?.geometry?.coordinates;
+        if (!feature || !Array.isArray(center)) {
           throw new Error('Building could not be located');
         }
 
-        const [longitude, latitude] = building.center;
+        const building = {
+          ...feature,
+          center,
+          place_name: feature.properties?.full_address || feature.properties?.name || destinationQuery,
+        };
+        const [longitude, latitude] = center;
         const stopUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/bus%20stop.json?country=ng&proximity=${longitude},${latitude}&types=poi&limit=1&access_token=${mapboxToken}`;
         return fetchJson(stopUrl).then((stopData) => ({ building, stop: stopData.features?.[0] }));
       })
@@ -337,6 +451,9 @@ function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocati
       return;
     }
 
+    lastMileMarkers.current.forEach((marker) => marker.remove());
+    lastMileMarkers.current = [];
+
     ['last-mile-walking', 'last-mile-cycling'].forEach((layerId) => {
       if (map.current.getLayer(layerId)) map.current.removeLayer(layerId);
       if (map.current.getSource(layerId)) map.current.removeSource(layerId);
@@ -357,13 +474,13 @@ function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocati
     addRoute('last-mile-walking', lastMile.walking, '#6D1A36', [1, 1]);
     addRoute('last-mile-cycling', lastMile.cycling, '#0f766e');
 
-    new mapboxgl.Marker({ color: '#0f172a' }).setLngLat(lastMile.building.center).setPopup(new mapboxgl.Popup({ offset: 25 }).setText(lastMile.building.place_name || destinationQuery)).addTo(map.current);
+    lastMileMarkers.current.push(new mapboxgl.Marker({ element: createMarkerElement('jj-location-marker') }).setLngLat(lastMile.building.center).setPopup(new mapboxgl.Popup({ offset: 25 }).setText(lastMile.building.place_name || destinationQuery)).addTo(map.current));
     if (lastMile.stop?.center) {
-      new mapboxgl.Marker({ color: '#6D1A36' }).setLngLat(lastMile.stop.center).setPopup(new mapboxgl.Popup({ offset: 25 }).setText(lastMile.stop.place_name || 'Nearest bus stop')).addTo(map.current);
+      lastMileMarkers.current.push(new mapboxgl.Marker({ element: createMarkerElement('jj-stop-marker') }).setLngLat(lastMile.stop.center).setPopup(new mapboxgl.Popup({ offset: 25 }).setText(lastMile.stop.place_name || 'Nearest bus stop')).addTo(map.current));
       bounds.extend(lastMile.stop.center);
     }
     map.current.fitBounds(bounds, { padding: { top: 80, bottom: 360, left: 60, right: 60 }, maxZoom: 16, duration: 700 });
-  }, [lastMile, destinationQuery]);
+  }, [lastMile, destinationQuery, styleRevision]);
 
   useEffect(() => {
     if (!map.current) {
@@ -376,7 +493,7 @@ function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocati
     }
 
     drawRoute();
-  }, [routePath, roadRoute]);
+  }, [routePath, roadRoute, styleRevision]);
 
   useEffect(() => {
     if (!map.current || !currentLocation) {
@@ -384,7 +501,7 @@ function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocati
     }
 
     locationMarker.current?.remove();
-    locationMarker.current = new mapboxgl.Marker({ color: '#2563eb' })
+    locationMarker.current = new mapboxgl.Marker({ element: createMarkerElement('jj-location-marker') })
       .setLngLat([currentLocation.longitude, currentLocation.latitude])
       .setPopup(new mapboxgl.Popup({ offset: 25 }).setText('Your location'))
       .addTo(map.current);
@@ -402,7 +519,7 @@ function MapboxTransitMap({ routePath = [], destinationQuery = '', currentLocati
   );
 }
 
-function GoogleTransitMap({ routePath = [], onError, currentLocation = null }) {
+function GoogleTransitMap({ routePath = [], onError, currentLocation = null, mapStyle = 'streets' }) {
   const mapContainer = useRef(null);
   const map = useRef(null);
   const directionsRenderer = useRef(null);
@@ -422,6 +539,7 @@ function GoogleTransitMap({ routePath = [], onError, currentLocation = null }) {
         map.current = new maps.Map(mapContainer.current, {
           center: { lat: 9.0765, lng: 7.3986 },
           zoom: 12,
+          mapTypeId: mapStyle === 'satellite' ? 'satellite' : 'roadmap',
           mapTypeControl: false,
           streetViewControl: false,
           fullscreenControl: false,
@@ -463,6 +581,10 @@ function GoogleTransitMap({ routePath = [], onError, currentLocation = null }) {
       directionsRenderer.current = null;
     };
   }, [onError]);
+
+  useEffect(() => {
+    map.current?.setMapTypeId(mapStyle === 'satellite' ? 'satellite' : 'roadmap');
+  }, [mapStyle]);
 
   useEffect(() => {
     if (!map.current || !directionsRenderer.current || routePath.length < 2 || !window.google?.maps) {
@@ -514,14 +636,8 @@ function GoogleTransitMap({ routePath = [], onError, currentLocation = null }) {
   );
 }
 
-export default function TransitMap({ routePath = [], destinationQuery = '', currentLocation = null, selectedPlace = null, nearestStops = [], onMapCenterChange }) {
-  const [provider, setProvider] = useState(googleMapsKey ? 'google' : 'mapbox');
-
-  if (provider === 'google' && !destinationQuery.trim() && !selectedPlace) {
-    return <GoogleTransitMap routePath={routePath} currentLocation={currentLocation} onError={() => setProvider('mapbox')} />;
-  }
-
-  if (!mapboxToken) {
+export default function TransitMap({ routePath = [], destinationQuery = '', currentLocation = null, selectedPlace = null, nearestStops = [], busStops = [], mapStyle = 'streets', onMapCenterChange, onWalkingRouteChange }) {
+  if (!hasPublicMapboxToken) {
     return (
       <div className="relative w-full h-full min-h-[400px]">
         <MockTransitMap routePath={routePath} />
@@ -532,5 +648,5 @@ export default function TransitMap({ routePath = [], destinationQuery = '', curr
     );
   }
 
-  return <MapboxTransitMap routePath={routePath} destinationQuery={destinationQuery} currentLocation={currentLocation} selectedPlace={selectedPlace} nearestStops={nearestStops} onMapCenterChange={onMapCenterChange} />;
+  return <MapboxTransitMap routePath={routePath} destinationQuery={destinationQuery} currentLocation={currentLocation} selectedPlace={selectedPlace} nearestStops={nearestStops} busStops={busStops} mapStyle={mapStyle} onMapCenterChange={onMapCenterChange} onWalkingRouteChange={onWalkingRouteChange} />;
 }
