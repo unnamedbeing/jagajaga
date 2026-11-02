@@ -402,7 +402,7 @@ function App() {
     };
 
   return (
-    <div className={`app-shell ${theme === 'dark' ? 'app-dark' : ''} h-screen w-full bg-slate-50 overflow-hidden flex flex-col font-sans selection:bg-[#FCD0A1] selection:text-[#6D1A36] relative`}>
+    <div className={`app-shell ${theme === 'dark' ? 'app-dark' : ''} h-screen h-dvh w-full bg-slate-50 overflow-hidden flex flex-col font-sans selection:bg-[#FCD0A1] selection:text-[#6D1A36] relative`}>
       
       {/* App Top Bar */}
     {!settingsOpen && <header className="absolute top-0 left-0 right-0 z-40 p-4 pointer-events-none">
