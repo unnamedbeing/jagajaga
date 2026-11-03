@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { MapPin, Clock, MessageSquare, Train, Bus, Info, ChevronDown, ChevronUp, ArrowRight, ArrowDownUp, Bike, CarFront, X, LocateFixed, Flag } from 'lucide-react';
 import ActionProgress from './ActionProgress';
 import { cn } from '../utils/cn';
@@ -57,6 +57,9 @@ const RouteSearch = ({ onRouteChange, onDestinationQueryChange, onUseLocation, o
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const [isSubmittingRoute, setIsSubmittingRoute] = useState(false);
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const dragStartY = useRef(0);
+  const dragCurrentY = useRef(0);
+
   useEffect(() => {
     if (currentLocation) {
       setOrigin('Your location');
@@ -339,17 +342,43 @@ const RouteSearch = ({ onRouteChange, onDestinationQueryChange, onUseLocation, o
     }
   };
 
+  const handlePointerDown = (event) => {
+    dragStartY.current = event.clientY;
+    dragCurrentY.current = event.clientY;
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handlePointerMove = (event) => {
+    if (event.buttons === 0) return;
+    dragCurrentY.current = event.clientY;
+  };
+
+  const handlePointerUp = () => {
+    const delta = dragCurrentY.current - dragStartY.current;
+
+    if (delta > 80) {
+      setIsMinimized(true);
+    } else if (delta < -80) {
+      setIsMinimized(false);
+      setShowRoutes(Boolean(destination.trim()));
+    }
+  };
+
   return (
     <motion.div
       layout
       className={cn(
         'bg-white rounded-t-[2.5rem] shadow-[0_-10px_40px_rgba(0,0,0,0.1)] w-full flex flex-col overflow-hidden transition-[height] duration-300 ease-out',
-        isMinimized ? 'h-28' : showRoutes ? 'h-[min(70vh,680px)]' : 'h-[min(52dvh,420px)]',
+        isMinimized ? 'h-28' : showRoutes ? 'h-[min(70vh,680px)]' : 'h-[min(52dvh,420px)] md:h-auto',
       )}
       transition={{ layout: { type: 'spring', stiffness: 280, damping: 30 } }}
     >
       <div
-        className="p-2 flex justify-center"
+        className="p-2 flex justify-center cursor-grab active:cursor-grabbing touch-none"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
       >
         <button
           type="button"
@@ -368,7 +397,7 @@ const RouteSearch = ({ onRouteChange, onDestinationQueryChange, onUseLocation, o
         </button>
       </div>
 
-      <div className="px-6 py-4 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto">
+      <div className="px-6 py-4 flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto md:min-h-0 md:flex-none md:overflow-visible">
         {(!showRoutes || !destination.trim()) && !isMinimized && (
           <div className="space-y-1">
             <h2 className="text-2xl font-bold text-zinc-900">Where are you going?</h2>
